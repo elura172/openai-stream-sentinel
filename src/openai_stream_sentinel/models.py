@@ -12,6 +12,7 @@ class FailureDomain(str, Enum):
     RATE_LIMIT_BURST = "RATE_LIMIT_BURST"
     TCP_RST_TRUNCATION = "TCP_RST_TRUNCATION"
     TOOL_TIMEOUT_SCHEMA_MISMATCH = "TOOL_TIMEOUT_SCHEMA_MISMATCH"
+    STREAM_ERROR = "STREAM_ERROR"
 
 
 class SeverityLevel(str, Enum):
@@ -23,21 +24,25 @@ class SeverityLevel(str, Enum):
 
 class StreamingMetrics(BaseModel):
     connect_start_ms: float
-    tcp_handshake_ms: float
-    ttft_ms: float = Field(description="Time to First Token in milliseconds")
+    tcp_handshake_ms: Optional[float] = None
+    ttft_ms: Optional[float] = Field(default=None, description="Time to first content chunk; unavailable when no content arrived")
+    finish_reason: Optional[str] = None
     total_duration_s: float
-    tokens_per_second: float
-    total_tokens: int
+    chunks_per_second: Optional[float] = None
     chunk_count: int
-    jitter_mean_ms: float
-    jitter_stddev_ms: float
-    jitter_max_ms: float = 0.0
-    jitter_p95_ms: float
-    jitter_p99_ms: float
+    completion_tokens: Optional[int] = None
+    inter_chunk_interval_mean_ms: float
+    inter_chunk_interval_stddev_ms: float
+    inter_chunk_interval_max_ms: float = 0.0
+    inter_chunk_interval_p95_ms: float
+    inter_chunk_interval_p99_ms: float
+    inter_chunk_interval_sample_count: int = 0
     prompt_tokens: int = 0
-    completion_tokens: int = 0
-    prompt_cache_hit: bool = False
+    prompt_cache_hit: Optional[bool] = None
     inferred_domain: FailureDomain = FailureDomain.HEALTHY
+    error_occurred: bool = False
+    error_details: Optional[str] = None
+    http_status_code: Optional[int] = None
 
 
 class IncidentRecord(BaseModel):

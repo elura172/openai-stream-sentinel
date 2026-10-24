@@ -24,5 +24,18 @@ def test_rca_engine_buffer_bloat_report():
 
     report = RCAEngine.generate_report(incident)
     assert "[OpenAI Enterprise Customer Advisory]" in report.customer_advisory
-    assert "Internal Incident RCA & Post-Mortem" in report.engineering_postmortem
+    assert "Internal Diagnostic Draft" in report.engineering_postmortem
+    assert "not been independently validated" in report.customer_advisory
     assert "curl" in report.engineering_postmortem
+
+
+def test_rca_engine_reports_unclassified_stream_failure():
+    tracker = TelemetryTracker()
+    tracker.start_connection()
+    tracker.record_error("gateway returned 503", status_code=503)
+
+    incident = RCAEngine.diagnose(tracker.compute_metrics(), {"model": "test-model"})
+
+    assert incident.failure_domain == FailureDomain.STREAM_ERROR
+    assert incident.metrics.http_status_code == 503
+    assert "does not identify a more specific" in incident.root_cause_summary

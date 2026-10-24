@@ -62,26 +62,42 @@ def print_incident_summary(report):
     table.add_column("Status", style="bold")
 
     # TTFT Row
-    ttft_status = "[green]NOMINAL[/green]" if metrics.ttft_ms < 400.0 else "[red]DEGRADED[/red]"
-    table.add_row("Time to First Token (TTFT)", f"{metrics.ttft_ms:.1f} ms", "< 350.0 ms", ttft_status)
+    ttft_display = "UNAVAILABLE" if metrics.ttft_ms is None else f"{metrics.ttft_ms:.1f} ms"
+    ttft_status = "NO CONTENT" if metrics.ttft_ms is None else (
+        "[green]NOMINAL[/green]" if metrics.ttft_ms < 400.0 else "[red]DEGRADED[/red]"
+    )
+    table.add_row("Time to First Token (TTFT)", ttft_display, "< 400.0 ms", ttft_status)
 
     # Generation speed
-    table.add_row("Token Generation Cadence", f"{metrics.tokens_per_second:.1f} tok/s", "> 30.0 tok/s", "[green]NOMINAL[/green]" if metrics.tokens_per_second > 20 else "[yellow]ATTENTION[/yellow]")
+    chunk_rate = "UNAVAILABLE" if metrics.chunks_per_second is None else f"{metrics.chunks_per_second:.1f} chunks/s"
+    table.add_row("Chunk Delivery Rate", chunk_rate, "Informational", "[blue]RECORDED[/blue]")
 
     # Jitter P95 & Max
-    jitter_status = "[green]NOMINAL[/green]" if metrics.jitter_p95_ms < 100.0 and metrics.jitter_max_ms < 500.0 else "[red]EXCESSIVE JITTER[/red]"
-    table.add_row("P95 Inter-Chunk Jitter", f"{metrics.jitter_p95_ms:.1f} ms", "< 60.0 ms", jitter_status)
-    if metrics.jitter_max_ms > 200.0:
-        table.add_row("Max Inter-Chunk Delay (Stall)", f"[bold red]{metrics.jitter_max_ms:.1f} ms[/bold red]", "< 150.0 ms", "[red]BUFFER STALL[/red]")
+    interval_status = "[yellow]LOW SAMPLE[/yellow]" if metrics.inter_chunk_interval_sample_count < 20 else (
+        "[green]NOMINAL[/green]" if metrics.inter_chunk_interval_p95_ms < 100.0 and metrics.inter_chunk_interval_max_ms < 500.0 else "[red]LONG INTERVAL[/red]"
+    )
+    table.add_row("P95 Inter-Chunk Interval", f"{metrics.inter_chunk_interval_p95_ms:.1f} ms (n={metrics.inter_chunk_interval_sample_count})", "< 100.0 ms", interval_status)
+    if metrics.inter_chunk_interval_max_ms > 200.0:
+        table.add_row("Max Inter-Chunk Interval", f"[bold red]{metrics.inter_chunk_interval_max_ms:.1f} ms[/bold red]", "< 200.0 ms", "[red]LONG GAP[/red]")
+
+    completion_tokens = "UNAVAILABLE" if metrics.completion_tokens is None else str(metrics.completion_tokens)
+    table.add_row("Completion Tokens (API usage)", completion_tokens, "Provider-reported", "[blue]RECORDED[/blue]")
 
     # Prompt Cache
-    cache_display = "[green]HIT[/green]" if metrics.prompt_cache_hit else "[yellow]MISS / UNCACHED[/yellow]"
-    table.add_row("KV Prompt Cache Locality", cache_display, "Prefix >1k tok", "[cyan]EVALUATED[/cyan]")
+    if metrics.prompt_cache_hit is True:
+        cache_display, cache_status = "LIKELY HIT", "[yellow]HEURISTIC[/yellow]"
+    elif metrics.prompt_cache_hit is False:
+        cache_display, cache_status = "LIKELY MISS", "[yellow]HEURISTIC[/yellow]"
+    else:
+        cache_display, cache_status = "UNKNOWN", "[dim]INSUFFICIENT SIGNAL[/dim]"
+    table.add_row("Prompt Cache Signal", cache_display, "Heuristic only", cache_status)
 
     # Total Duration
     table.add_row("Total Stream Duration", f"{metrics.total_duration_s:.3f} s", "N/A", "[blue]RECORDED[/blue]")
 
     console.print(table)
+    if metrics.error_occurred:
+        console.print(f"Probe error (HTTP {metrics.http_status_code or 'unavailable'}): {metrics.error_details}", markup=False)
 
 
 async def async_main():
@@ -90,6 +106,7 @@ async def async_main():
     parser.add_argument("--scenario", choices=list(SCENARIO_MAP.keys()) + ["all"], default="all", help="Scenario to simulate in 'run' mode")
     parser.add_argument("--model", default="gpt-4o", help="Target model for live probe")
     parser.add_argument("--prompt", default="Ping probe test", help="Prompt text for live probe")
+    parser.add_argument("--timeout", type=float, default=30.0, help="Total live probe deadline in seconds (default: 30)")
     parser.add_argument("--out", type=Path, default=None, help="Path to write dual-format Markdown RCA report")
 
     args = parser.parse_args()
@@ -104,7 +121,7 @@ async def async_main():
 
     if args.command == "run":
         if args.scenario == "all":
-            console.print("[bold yellow]Executing full enterprise failure simulation matrix (5 scenarios + baseline)...[/bold yellow]\n")
+            console.print("[bold yellow]Executing all six synthetic scenarios (baseline + five failure profiles)...[/bold yellow]\n")
             for name, domain in SCENARIO_MAP.items():
                 with console.status(f"[cyan]Simulating {name} ({domain.value})...[/cyan]"):
                     rep = await CanaryRunner.run_simulation(domain)
@@ -119,7 +136,7 @@ async def async_main():
             print_incident_summary(rep)
 
     elif args.command == "suite":
-        console.print("[bold green]Running comprehensive automated verification test suite...[/bold green]\n")
+        console.print("[bold green]Running the synthetic scenario suite...[/bold green]\n")
         for name, domain in SCENARIO_MAP.items():
             rep = await CanaryRunner.run_simulation(domain)
             reports.append(rep)
@@ -129,7 +146,7 @@ async def async_main():
     elif args.command == "probe":
         console.print(f"[bold cyan]Launching live probe against model: {args.model}...[/bold cyan]")
         try:
-            rep = await CanaryRunner.run_live_probe(model=args.model, prompt=args.prompt)
+            rep = await CanaryRunner.run_live_probe(model=args.model, prompt=args.prompt, timeout=args.timeout)
             reports.append(rep)
             print_incident_summary(rep)
         except Exception as e:
@@ -146,9 +163,11 @@ async def async_main():
         args.out.write_text(output_content, encoding="utf-8")
         console.print(f"\n[bold green]✓ Exported dual-format RCA report to:[/bold green] [underline]{args.out}[/underline]")
 
+    return int(args.command == "probe" and any(rep.incident.failure_domain != FailureDomain.HEALTHY for rep in reports))
+
 
 def main():
-    asyncio.run(async_main())
+    sys.exit(asyncio.run(async_main()))
 
 
 if __name__ == "__main__":

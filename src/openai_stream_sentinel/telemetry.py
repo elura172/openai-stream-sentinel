@@ -23,6 +23,9 @@ class TelemetryTracker:
         self.tokens: List[str] = []
         self.error_occurred: bool = False
         self.error_details: Optional[str] = None
+        self.http_status_code: Optional[int] = None
+        self.completion_tokens: Optional[int] = None
+        self.finish_reason: Optional[str] = None
 
     def start_connection(self) -> None:
         self.connect_start = time.perf_counter()
@@ -37,31 +40,39 @@ class TelemetryTracker:
         self.chunk_timestamps.append(now)
         self.tokens.append(token_chunk)
 
+    def record_usage(self, completion_tokens: Optional[int], prompt_tokens: Optional[int] = None) -> None:
+        """Record provider-reported completion token usage when available."""
+        if completion_tokens is not None:
+            self.completion_tokens = completion_tokens
+        if prompt_tokens is not None:
+            self.prompt_tokens = prompt_tokens
+
     def finish(self) -> None:
         self.stream_end = time.perf_counter()
 
-    def record_error(self, err: str) -> None:
+    def record_error(self, err: str, status_code: Optional[int] = None) -> None:
         self.error_occurred = True
         self.error_details = err
+        self.http_status_code = status_code
         self.stream_end = time.perf_counter()
 
     def compute_metrics(self) -> StreamingMetrics:
         if self.connect_start == 0.0:
             self.connect_start = time.perf_counter()
-        if self.tcp_connected == 0.0:
-            self.tcp_connected = self.connect_start + 0.025  # default 25ms handshake
-        if self.first_token_time == 0.0:
-            self.first_token_time = self.stream_end or time.perf_counter()
         if self.stream_end == 0.0:
             self.stream_end = time.perf_counter()
 
-        tcp_handshake_ms = (self.tcp_connected - self.connect_start) * 1000.0
-        ttft_ms = (self.first_token_time - self.connect_start) * 1000.0
+        tcp_handshake_ms = (
+            (self.tcp_connected - self.connect_start) * 1000.0
+            if self.tcp_connected > 0.0 else None
+        )
+        ttft_ms = (self.first_token_time - self.connect_start) * 1000.0 if self.chunk_timestamps else None
         total_duration_s = max(0.0001, self.stream_end - self.connect_start)
-        gen_duration_s = max(0.0001, self.stream_end - self.first_token_time)
+        gen_duration_s = max(0.0, self.stream_end - self.first_token_time) if self.chunk_timestamps else 0.0
 
-        total_tokens = len(self.tokens)
-        tokens_per_second = (total_tokens / gen_duration_s) if total_tokens > 0 else 0.0
+        chunk_count = len(self.chunk_timestamps)
+        # Avoid presenting a tiny burst window as sustained throughput.
+        chunks_per_second = chunk_count / gen_duration_s if chunk_count > 1 and gen_duration_s >= 0.01 else None
 
         # Calculate inter-chunk arrival times in ms
         diffs_ms: List[float] = []
@@ -70,56 +81,65 @@ class TelemetryTracker:
             diffs_ms.append(diff)
 
         if not diffs_ms:
-            mean_jitter = 0.0
-            stddev_jitter = 0.0
-            max_jitter = 0.0
-            p95_jitter = 0.0
-            p99_jitter = 0.0
+            mean_interval = 0.0
+            stddev_interval = 0.0
+            interval_max = 0.0
+            interval_p95 = 0.0
+            interval_p99 = 0.0
         else:
             diffs_sorted = sorted(diffs_ms)
-            mean_jitter = statistics.mean(diffs_ms)
-            stddev_jitter = statistics.stdev(diffs_ms) if len(diffs_ms) > 1 else 0.0
-            max_jitter = max(diffs_ms)
-            p95_idx = min(len(diffs_sorted) - 1, math.floor(0.95 * len(diffs_sorted)))
-            p99_idx = min(len(diffs_sorted) - 1, math.floor(0.99 * len(diffs_sorted)))
-            p95_jitter = diffs_sorted[p95_idx]
-            p99_jitter = diffs_sorted[p99_idx]
+            mean_interval = statistics.mean(diffs_ms)
+            stddev_interval = statistics.stdev(diffs_ms) if len(diffs_ms) > 1 else 0.0
+            interval_max = max(diffs_ms)
+            p95_idx = min(len(diffs_sorted) - 1, math.ceil(0.95 * len(diffs_sorted)) - 1)
+            p99_idx = min(len(diffs_sorted) - 1, math.ceil(0.99 * len(diffs_sorted)) - 1)
+            interval_p95 = diffs_sorted[p95_idx]
+            interval_p99 = diffs_sorted[p99_idx]
 
         # Detect prompt cache hit heuristic:
         # If prompt > 1024 tokens and TTFT < 350ms -> cache hit.
-        # If prompt > 2048 tokens and TTFT > 1200ms -> cold prefill / cache miss.
-        prompt_cache_hit = False
-        if self.prompt_tokens >= 1024 and ttft_ms < 400.0:
+        # If prompt > 2048 tokens and TTFT > 1400ms -> possible cold prefill / cache miss.
+        prompt_cache_hit: Optional[bool] = None
+        if ttft_ms is not None and self.prompt_tokens >= 1024 and ttft_ms < 400.0:
             prompt_cache_hit = True
+        elif ttft_ms is not None and self.prompt_tokens >= 2048 and ttft_ms > 1400.0:
+            prompt_cache_hit = False
 
         # Inferred domain classification
         domain = FailureDomain.HEALTHY
-        if self.error_occurred and "429" in (self.error_details or ""):
+        error_text = (self.error_details or "").casefold()
+        if self.error_occurred and (self.http_status_code == 429 or "429" in error_text or "rate_limit" in error_text):
             domain = FailureDomain.RATE_LIMIT_BURST
-        elif self.error_occurred and ("RST" in (self.error_details or "") or "Truncation" in (self.error_details or "")):
+        elif self.error_occurred and any(term in error_text for term in ("rst", "truncation", "connection reset", "connection aborted")):
             domain = FailureDomain.TCP_RST_TRUNCATION
-        elif self.error_occurred and "Tool" in (self.error_details or ""):
+        elif self.error_occurred and "tool" in error_text:
             domain = FailureDomain.TOOL_TIMEOUT_SCHEMA_MISMATCH
-        elif p95_jitter > 200.0 or (diffs_ms and max(diffs_ms) > 1000.0):
+        elif self.error_occurred:
+            domain = FailureDomain.STREAM_ERROR
+        elif interval_p95 > 200.0 or (diffs_ms and interval_max > 1000.0):
             domain = FailureDomain.PROXY_BUFFER_BLOAT
-        elif self.prompt_tokens >= 2048 and ttft_ms > 1400.0:
+        elif ttft_ms is not None and self.prompt_tokens >= 2048 and ttft_ms > 1400.0:
             domain = FailureDomain.PROMPT_CACHE_EVICTION
 
         return StreamingMetrics(
             connect_start_ms=self.connect_start * 1000.0,
             tcp_handshake_ms=tcp_handshake_ms,
             ttft_ms=ttft_ms,
+            finish_reason=self.finish_reason,
             total_duration_s=total_duration_s,
-            tokens_per_second=tokens_per_second,
-            total_tokens=total_tokens,
-            chunk_count=len(self.chunk_timestamps),
-            jitter_mean_ms=mean_jitter,
-            jitter_stddev_ms=stddev_jitter,
-            jitter_max_ms=max_jitter,
-            jitter_p95_ms=p95_jitter,
-            jitter_p99_ms=p99_jitter,
+            chunks_per_second=chunks_per_second,
+            chunk_count=chunk_count,
+            completion_tokens=self.completion_tokens,
+            inter_chunk_interval_mean_ms=mean_interval,
+            inter_chunk_interval_stddev_ms=stddev_interval,
+            inter_chunk_interval_max_ms=interval_max,
+            inter_chunk_interval_p95_ms=interval_p95,
+            inter_chunk_interval_p99_ms=interval_p99,
+            inter_chunk_interval_sample_count=len(diffs_ms),
             prompt_tokens=self.prompt_tokens,
-            completion_tokens=total_tokens,
             prompt_cache_hit=prompt_cache_hit,
-            inferred_domain=domain
+            inferred_domain=domain,
+            error_occurred=self.error_occurred,
+            error_details=self.error_details,
+            http_status_code=self.http_status_code
         )

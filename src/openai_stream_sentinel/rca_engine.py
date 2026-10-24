@@ -32,9 +32,9 @@ class RCAEngine:
                 failure_domain=domain,
                 severity=SeverityLevel.INFORMATIONAL,
                 mit_course_reference="MIT 6.172 (Performance Engineering: Cache Locality & Pipeline Throughput)",
-                root_cause_summary="API streaming connection operating nominally within baseline SLO limits (<250ms TTFT, <40ms token jitter).",
+                root_cause_summary="No stream error was observed, and the measured client-side TTFT and inter-chunk intervals were within the probe's reference thresholds.",
                 metrics=metrics,
-                telemetry_indicators={"ttft_ms": metrics.ttft_ms, "tps": metrics.tokens_per_second, "p95_jitter_ms": metrics.jitter_p95_ms},
+                telemetry_indicators={"ttft_ms": metrics.ttft_ms, "chunks_per_second": metrics.chunks_per_second, "p95_inter_chunk_interval_ms": metrics.inter_chunk_interval_p95_ms},
                 reproduction_curl="curl -X POST https://api.openai.com/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"gpt-4o\", \"stream\": true}'",
                 remediation_steps=["Continue routine synthetic canary monitoring.", "Verify quarterly SLO compliance against P99 latency."]
             )
@@ -48,14 +48,14 @@ class RCAEngine:
                 severity=SeverityLevel.SEV3,
                 mit_course_reference="MIT 6.033 (Computer System Engineering: Network Buffering & The End-to-End Argument)",
                 root_cause_summary=(
-                    "Severe token inter-arrival jitter detected. Chunks are generated nominally by OpenAI clusters but are being buffered "
-                    "by an intermediate enterprise firewall or reverse proxy (e.g. Zscaler/Palo Alto) before delivering in large, bursty TCP frames."
+                    "A long inter-chunk interval was observed. This pattern is compatible with response buffering, but client-side timing "
+                    "cannot locate the delay or distinguish a proxy from server, network, or local scheduling effects."
                 ),
                 metrics=metrics,
                 telemetry_indicators={
-                    "p95_jitter_ms": metrics.jitter_p95_ms,
+                    "p95_inter_chunk_interval_ms": metrics.inter_chunk_interval_p95_ms,
                     "max_stall_s": meta.get("buffer_stall_s", 1.85),
-                    "mean_jitter_ms": metrics.jitter_mean_ms,
+                    "mean_inter_chunk_interval_ms": metrics.inter_chunk_interval_mean_ms,
                     "diagnostic": "Proxy Buffer Bloat"
                 },
                 reproduction_curl=(
@@ -81,8 +81,8 @@ class RCAEngine:
                 severity=SeverityLevel.SEV3,
                 mit_course_reference="MIT 6.172 (Performance Engineering: Cache Hierarchy & KV Cache Spatial Locality)",
                 root_cause_summary=(
-                    "High Time-to-First-Token (TTFT) caused by prompt prefix cache invalidation. A 4,000+ token context experienced "
-                    "a cold prefill because non-deterministic metadata (e.g., dynamic timestamps or user session IDs) was prepended at index 0."
+                    "High time-to-first-token (TTFT) was observed with a long prompt. A cold prompt-cache prefill is one possible explanation, "
+                    "but client-side timing alone cannot confirm cache status or rule out server and network causes."
                 ),
                 metrics=metrics,
                 telemetry_indicators={
@@ -113,8 +113,8 @@ class RCAEngine:
                 severity=SeverityLevel.SEV2,
                 mit_course_reference="MIT 6.033 (Fault Tolerance: Token-Bucket Rate Limiting, Backpressure & Decorrelated Jitter)",
                 root_cause_summary=(
-                    "HTTP 429 Rate Limit Exceeded. A burst of concurrent agent worker threads saturated the provisioned TPM (Tokens Per Minute) "
-                    "quota. Client SDK retry loop lacked decorrelated jitter, triggering a thundering-herd cascade."
+                    "HTTP 429 was reported. This probe cannot establish the quota cause, request concurrency, "
+                    "or whether retries amplified the event."
                 ),
                 metrics=metrics,
                 telemetry_indicators={
@@ -146,8 +146,8 @@ class RCAEngine:
                 severity=SeverityLevel.SEV1,
                 mit_course_reference="MIT 6.033 (Computer System Engineering: Network Transport, Idle Timeouts & Keep-Alives)",
                 root_cause_summary=(
-                    "Abrupt stream termination via TCP RST (HTTP/2 RST_STREAM). An intermediate reverse proxy or NAT gateway terminated "
-                    "the connection due to an aggressive 60s idle timeout while waiting for downstream client socket reads."
+                    "The stream terminated with a connection-reset error. The client cannot determine which network hop reset the connection "
+                    "or establish that an idle timeout caused it."
                 ),
                 metrics=metrics,
                 telemetry_indicators={
@@ -176,8 +176,8 @@ class RCAEngine:
                 severity=SeverityLevel.SEV2,
                 mit_course_reference="MIT 6.824 (Distributed Systems: RPC Semantics, Timeouts & Schema Validation)",
                 root_cause_summary=(
-                    "Agentic tool execution failure during multi-step model function invocation. Downstream tool RPC exceeded client "
-                    "deadline (10s) and returned a non-conforming payload that caused model tool loop stalling."
+                    "A tool-related timeout or schema error was reported. This probe does not execute downstream tools, so confirm the tool "
+                    "call, deadline, and returned payload in the system that performed the invocation."
                 ),
                 metrics=metrics,
                 telemetry_indicators={
@@ -197,13 +197,38 @@ class RCAEngine:
                 ]
             )
 
+        elif domain == FailureDomain.STREAM_ERROR:
+            return IncidentRecord(
+                incident_id=incident_id,
+                timestamp=now_str,
+                target_model=model,
+                failure_domain=domain,
+                severity=SeverityLevel.SEV2,
+                mit_course_reference="Distributed systems: failure detection and error propagation",
+                root_cause_summary=(
+                    "The streaming request failed. The available client telemetry does not identify a more specific failure domain; "
+                    "inspect the captured error and HTTP status before attributing the cause to a network or service component."
+                ),
+                metrics=metrics,
+                telemetry_indicators={
+                    "http_status": metrics.http_status_code,
+                    "error": metrics.error_details or "Unknown streaming error",
+                    "diagnostic": "Unclassified stream failure"
+                },
+                reproduction_curl="Reproduce with the same model and prompt using the OpenAI API client while recording the response status and stream error.",
+                remediation_steps=[
+                    "Check the recorded HTTP status and error message, then correlate them with request identifiers and service telemetry.",
+                    "Do not attribute the failure to a proxy, model, or tool without corroborating evidence."
+                ]
+            )
+
         raise ValueError(f"Unmapped domain: {domain}")
 
     @staticmethod
     def generate_report(incident: IncidentRecord) -> RCAReport:
         advisory = (
             f"### [OpenAI Enterprise Customer Advisory] — {incident.incident_id}\n\n"
-            f"**Status:** Under Investigation / Mitigation Provided  \n"
+            f"**Status:** Diagnostic draft; cause and mitigation require validation  \n"
             f"**Impacted Surface:** API Streaming & Tool Invocation ({incident.target_model})  \n"
             f"**Severity:** {incident.severity.value}  \n\n"
             f"#### Summary\n"
@@ -214,12 +239,11 @@ class RCAEngine:
             advisory += f"- {step}\n"
 
         advisory += (
-            f"\n*Our Technical Support Engineering team has validated this guidance. If you require assistance adjusting proxy or "
-            f"SDK configurations, reply directly to this incident thread for real-time SSE coordination.*"
+            f"\n*This advisory was generated from client-side telemetry and has not been independently validated. Confirm the cause and proposed workaround before external use.*"
         )
 
         postmortem = (
-            f"# Internal Incident RCA & Post-Mortem: {incident.incident_id}\n\n"
+            f"# Internal Diagnostic Draft: {incident.incident_id}\n\n"
             f"**Target Model:** `{incident.target_model}`  \n"
             f"**Failure Domain:** `{incident.failure_domain.value}`  \n"
             f"**Severity Classification:** `{incident.severity.value}`  \n"
@@ -228,9 +252,13 @@ class RCAEngine:
             f"## 1. Executive Summary\n"
             f"{incident.root_cause_summary}\n\n"
             f"## 2. Telemetry & SLI Degradation Profile\n"
-            f"- **TTFT (Time to First Token):** `{incident.metrics.ttft_ms:.2f} ms`  \n"
-            f"- **Token Cadence:** `{incident.metrics.tokens_per_second:.2f} tokens/s`  \n"
-            f"- **P95 Inter-Chunk Jitter:** `{incident.metrics.jitter_p95_ms:.2f} ms`  \n"
+            f"- **TTFT (Time to First Token):** `{f'{incident.metrics.ttft_ms:.2f} ms' if incident.metrics.ttft_ms is not None else 'unavailable (no content received)'}`  \n"
+            f"- **Finish reason:** `{incident.metrics.finish_reason or 'not observed'}`  \n"
+            f"- **HTTP error status:** `{incident.metrics.http_status_code if incident.metrics.http_status_code is not None else 'unavailable'}`  \n"
+            f"- **Probe error:** {incident.metrics.error_details or 'none'}  \n"
+            f"- **Chunk Delivery Rate:** `{f'{incident.metrics.chunks_per_second:.2f} chunks/s' if incident.metrics.chunks_per_second is not None else 'unavailable (insufficient duration)'}`  \n"
+            f"- **P95 Inter-Chunk Interval:** `{incident.metrics.inter_chunk_interval_p95_ms:.2f} ms`  \n"
+            f"- **Completion Tokens (provider-reported):** `{incident.metrics.completion_tokens if incident.metrics.completion_tokens is not None else 'unavailable'}`  \n"
             f"- **Total Chunks Observed:** `{incident.metrics.chunk_count}`  \n"
             f"- **Prompt Cache Hit:** `{incident.metrics.prompt_cache_hit}`  \n\n"
             f"## 3. Reproduction Command (cURL)\n"

@@ -18,8 +18,8 @@ async def test_simulate_proxy_buffer_bloat():
     tracker, meta = await simulate_stream(FailureDomain.PROXY_BUFFER_BLOAT)
     metrics = tracker.compute_metrics()
     assert metrics.inferred_domain == FailureDomain.PROXY_BUFFER_BLOAT
-    assert metrics.jitter_max_ms > 1000.0
-    assert metrics.jitter_stddev_ms > 100.0
+    assert metrics.inter_chunk_interval_max_ms > 1000.0
+    assert metrics.inter_chunk_interval_stddev_ms > 100.0
 
 
 @pytest.mark.asyncio
