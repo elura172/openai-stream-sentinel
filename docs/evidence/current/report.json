@@ -1,0 +1,52 @@
+{
+  "incident": {
+    "incident_id": "INC-DEA4FB27",
+    "timestamp": "2026-10-24T10:18:44.805693+00:00",
+    "target_model": "test-model",
+    "failure_domain": "STREAM_ERROR",
+    "severity": "SEV-2 (Major / Degraded)",
+    "probe_mode": "LIVE_PROBE",
+    "diagnostic_basis": "Recorded request, stream, deadline, or missing-finish error",
+    "root_cause_summary": "The streaming request failed. The available client telemetry does not identify a more specific failure domain.",
+    "metrics": {
+      "connect_start_ms": 244915463.06937498,
+      "tcp_handshake_ms": null,
+      "ttft_ms": 40.778791008051485,
+      "finish_reason": null,
+      "total_duration_s": 0.04098879100638442,
+      "chunks_per_second": null,
+      "chunk_count": 1,
+      "completion_tokens": null,
+      "inter_chunk_interval_mean_ms": 0.0,
+      "inter_chunk_interval_stddev_ms": 0.0,
+      "inter_chunk_interval_max_ms": 0.0,
+      "inter_chunk_interval_p95_ms": 0.0,
+      "inter_chunk_interval_p99_ms": 0.0,
+      "inter_chunk_interval_sample_count": 0,
+      "prompt_tokens": 1,
+      "prompt_cache_hit": null,
+      "inferred_domain": "STREAM_ERROR",
+      "error_occurred": true,
+      "error_details": "Stream ended before a model finish_reason was received",
+      "http_status_code": null,
+      "request_id": "local-incomplete-stream-001"
+    },
+    "telemetry_indicators": {
+      "http_status": null,
+      "error": "Stream ended before a model finish_reason was received",
+      "request_id": "local-incomplete-stream-001",
+      "finish_reason": null,
+      "chunks_received": 1,
+      "ttft_ms": 40.778791008051485,
+      "max_inter_chunk_interval_ms": 0.0,
+      "interval_sample_count": 0
+    },
+    "reproduction_command": "curl --no-buffer --max-time 30 \"${OPENAI_BASE_URL:-https://api.openai.com/v1}/chat/completions\" \\\n  -H \"Authorization: Bearer $OPENAI_API_KEY\" \\\n  -H 'Content-Type: application/json' \\\n  --data '{\"model\": \"test-model\", \"stream\": true, \"messages\": [{\"role\": \"user\", \"content\": \"Ping\"}]}'",
+    "remediation_steps": [
+      "Correlate the request ID, HTTP status, error, and completion state with service logs.",
+      "Treat partial content as incomplete; retry only when safe for the calling application."
+    ]
+  },
+  "customer_advisory": "### Customer advisory draft — INC-DEA4FB27\n\n**Source:** LIVE_PROBE  \n**Status:** Investigation required  \n\nThe streaming request failed. The available client telemetry does not identify a more specific failure domain.\n\n#### Suggested next steps\n- Correlate the request ID, HTTP status, error, and completion state with service logs.\n- Treat partial content as incomplete; retry only when safe for the calling application.\n\n*This automatically generated draft has not been independently validated. It is not a communication from OpenAI support.*",
+  "engineering_postmortem": "# Internal Diagnostic Draft: INC-DEA4FB27\n\n**Target model:** `test-model`  \n**Source:** `LIVE_PROBE`  \n**Diagnostic pattern:** `STREAM_ERROR`  \n**Triage hint:** `SEV-2 (Major / Degraded)` (service impact not measured)  \n**Timestamp:** `2026-10-24T10:18:44.805693+00:00`  \n\n## Assessment\nThe streaming request failed. The available client telemetry does not identify a more specific failure domain.\n\n**Rule:** Recorded request, stream, deadline, or missing-finish error\n\n## Observations\n- **TTFT (Time to First Token):** `40.78 ms`  \n- **Chunk delivery rate:** `unavailable (insufficient duration)`  \n- **P95 inter-chunk interval:** `0.00 ms` (n=0)  \n- **Completion tokens (provider-reported):** `unavailable`  \n- **HTTP error status:** `unavailable`  \n\n    {\n      \"http_status\": null,\n      \"error\": \"Stream ended before a model finish_reason was received\",\n      \"request_id\": \"local-incomplete-stream-001\",\n      \"finish_reason\": null,\n      \"chunks_received\": 1,\n      \"ttft_ms\": 40.778791008051485,\n      \"max_inter_chunk_interval_ms\": 0.0,\n      \"interval_sample_count\": 0\n    }\n\n## Reproduction aid\nSynthetic scenarios repeat an injected pattern. Live commands are generic connectivity checks; they do not reproduce the original prompt, route, or root cause automatically.\n\n```bash\ncurl --no-buffer --max-time 30 \"${OPENAI_BASE_URL:-https://api.openai.com/v1}/chat/completions\" \\\n  -H \"Authorization: Bearer $OPENAI_API_KEY\" \\\n  -H 'Content-Type: application/json' \\\n  --data '{\"model\": \"test-model\", \"stream\": true, \"messages\": [{\"role\": \"user\", \"content\": \"Ping\"}]}'\n```\n\n## Follow-up\n- Correlate the request ID, HTTP status, error, and completion state with service logs.\n- Treat partial content as incomplete; retry only when safe for the calling application.\n"
+}

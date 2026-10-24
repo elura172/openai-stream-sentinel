@@ -1,0 +1,41 @@
+{
+  "incident": {
+    "incident_id": "INC-88EE2D2E",
+    "timestamp": "2026-10-24T10:18:45.027987+00:00",
+    "target_model": "test-model",
+    "failure_domain": "HEALTHY",
+    "severity": "INFORMATIONAL (Normal Operation)",
+    "mit_course_reference": "MIT 6.172 (Performance Engineering: Cache Locality & Pipeline Throughput)",
+    "root_cause_summary": "API streaming connection operating nominally within baseline SLO limits (<250ms TTFT, <40ms token jitter).",
+    "metrics": {
+      "connect_start_ms": 244915696.117041,
+      "tcp_handshake_ms": 0.0002500019036233425,
+      "ttft_ms": 30.0989999959711,
+      "total_duration_s": 0.03029933400102891,
+      "tokens_per_second": 4991.663795227491,
+      "total_tokens": 1,
+      "chunk_count": 1,
+      "jitter_mean_ms": 0.0,
+      "jitter_stddev_ms": 0.0,
+      "jitter_max_ms": 0.0,
+      "jitter_p95_ms": 0.0,
+      "jitter_p99_ms": 0.0,
+      "prompt_tokens": 1,
+      "completion_tokens": 1,
+      "prompt_cache_hit": false,
+      "inferred_domain": "HEALTHY"
+    },
+    "telemetry_indicators": {
+      "ttft_ms": 30.0989999959711,
+      "tps": 4991.663795227491,
+      "p95_jitter_ms": 0.0
+    },
+    "reproduction_curl": "curl -X POST https://api.openai.com/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"gpt-4o\", \"stream\": true}'",
+    "remediation_steps": [
+      "Continue routine synthetic canary monitoring.",
+      "Verify quarterly SLO compliance against P99 latency."
+    ]
+  },
+  "customer_advisory": "### [OpenAI Enterprise Customer Advisory] — INC-88EE2D2E\n\n**Status:** Under Investigation / Mitigation Provided  \n**Impacted Surface:** API Streaming & Tool Invocation (test-model)  \n**Severity:** INFORMATIONAL (Normal Operation)  \n\n#### Summary\nAPI streaming connection operating nominally within baseline SLO limits (<250ms TTFT, <40ms token jitter).\n\n#### Immediate Actionable Workaround for Engineering Teams\n- Continue routine synthetic canary monitoring.\n- Verify quarterly SLO compliance against P99 latency.\n\n*Our Technical Support Engineering team has validated this guidance. If you require assistance adjusting proxy or SDK configurations, reply directly to this incident thread for real-time SSE coordination.*",
+  "engineering_postmortem": "# Internal Incident RCA & Post-Mortem: INC-88EE2D2E\n\n**Target Model:** `test-model`  \n**Failure Domain:** `HEALTHY`  \n**Severity Classification:** `INFORMATIONAL (Normal Operation)`  \n**Theoretical Grounding:** `MIT 6.172 (Performance Engineering: Cache Locality & Pipeline Throughput)`  \n**Timestamp:** `2026-10-24T10:18:45.027987+00:00`  \n\n## 1. Executive Summary\nAPI streaming connection operating nominally within baseline SLO limits (<250ms TTFT, <40ms token jitter).\n\n## 2. Telemetry & SLI Degradation Profile\n- **TTFT (Time to First Token):** `30.10 ms`  \n- **Token Cadence:** `4991.66 tokens/s`  \n- **P95 Inter-Chunk Jitter:** `0.00 ms`  \n- **Total Chunks Observed:** `1`  \n- **Prompt Cache Hit:** `False`  \n\n## 3. Reproduction Command (cURL)\n```bash\ncurl -X POST https://api.openai.com/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"gpt-4o\", \"stream\": true}'\n```\n\n## 4. Root Cause Analysis (5 Whys / Systems Engineering)\nTracing the failure from client socket to OpenAI cluster scheduling:\n1. *Why did the client experience failure?* Observed failure mode `HEALTHY`.\n2. *Where in the network/compute path did the bottleneck manifest?* Analyzed in accordance with MIT 6.172 (Performance Engineering: Cache Locality & Pipeline Throughput).\n3. *How was it detected?* Stream Sentinel synthetic telemetry identified anomalous variance in chunk delta arrivals or protocol-level RSTs.\n\n## 5. Preventative Action Items & Long-Term Fixes\n1. Continue routine synthetic canary monitoring.\n2. Verify quarterly SLO compliance against P99 latency.\n"
+}

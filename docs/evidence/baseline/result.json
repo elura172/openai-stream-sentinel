@@ -1,0 +1,18 @@
+{
+  "recorded_at": "2026-10-24T10:18:45.442360+00:00",
+  "git_head": "b65e4c47b518518eed919cead7386dddd782a29f",
+  "source_sha256": "eac12c93d46c4bcc9d0ddb7d5488872457e832f2386dd8d66839b54f7cc9974c",
+  "sentinel_version": "0.1.0",
+  "python": "3.13.5",
+  "openai_sdk": "3.37.0",
+  "http_status_served": 200,
+  "content_chunks_per_request": 1,
+  "finish_event_sent": false,
+  "done_marker_sent": false,
+  "requests_received": 2,
+  "expected_requests": 2,
+  "api_report_error": null,
+  "api_report_domain": "HEALTHY",
+  "cli_exit": 0,
+  "cli_report_written": true
+}

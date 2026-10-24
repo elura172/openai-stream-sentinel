@@ -1,0 +1,32 @@
+╭────────────────────────────────────────────────────────────╮
+│ OpenAI Stream Sentinel · Client-side streaming diagnostics │
+│ Independent project · observations and heuristic triage    │
+╰────────────────────────────────────────────────────────────╯
+Launching live probe against model: test-model...
+╭─────────── [INC-0F6BAE55] STREAM_ERROR (SEV-2 (Major / Degraded)) ───────────╮
+│ Assessment: The streaming request failed. The available client telemetry     │
+│ does not identify a more specific failure domain.                            │
+│                                                                              │
+│ Diagnostic rule: Recorded request, stream, deadline, or missing-finish error │
+╰──────────────────────────────────────────────────────────────────────────────╯
+                             Streaming Observations                             
+┏━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┓
+┃ Metric / SLI       ┃ Observed Value ┃ Local reference   ┃ Status             ┃
+┡━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━┩
+│ Time to First      │ 31.8 ms        │ < 400.0 ms        │ NOMINAL            │
+│ Token (TTFT)       │                │                   │                    │
+│ Chunk Delivery     │ UNAVAILABLE    │ Informational     │ RECORDED           │
+│ Rate               │                │                   │                    │
+│ P95 Inter-Chunk    │ 0.0 ms (n=0)   │ < 100.0 ms        │ LOW SAMPLE         │
+│ Interval           │                │                   │                    │
+│ Completion Tokens  │ UNAVAILABLE    │ Provider-reported │ RECORDED           │
+│ (API usage)        │                │                   │                    │
+│ Prompt Cache       │ UNKNOWN        │ Heuristic only    │ INSUFFICIENT       │
+│ Signal             │                │                   │ SIGNAL             │
+│ Total Stream       │ 0.032 s        │ N/A               │ RECORDED           │
+│ Duration           │                │                   │                    │
+└────────────────────┴────────────────┴───────────────────┴────────────────────┘
+Probe error (HTTP unavailable): Stream ended before a model finish_reason was 
+received
+
+✓ Exported diagnostic report to: docs/evidence/current/cli-report.md

@@ -1,0 +1,26 @@
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ OpenAI Stream Sentinel · Enterprise Diagnostic Probe & Auto-RCA Canary       │
+│ Theoretical Framework: MIT 6.033 (Fault Tolerance) · MIT 6.172 (Performance) │
+│ · MIT 6.824 (Distributed Systems)                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+Launching live probe against model: test-model...
+╭───────── [INC-237C8284] HEALTHY (INFORMATIONAL (Normal Operation)) ──────────╮
+│ Root Cause: API streaming connection operating nominally within baseline SLO │
+│ limits (<250ms TTFT, <40ms token jitter).                                    │
+│                                                                              │
+│ Theoretical Reference: MIT 6.172 (Performance Engineering: Cache Locality &  │
+│ Pipeline Throughput)                                                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+                      Streaming Telemetry & SLI Metrics                       
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━┓
+┃ Metric / SLI               ┃ Observed Value  ┃ Baseline Target ┃ Status    ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━┩
+│ Time to First Token (TTFT) │ 30.5 ms         │ < 350.0 ms      │ NOMINAL   │
+│ Token Generation Cadence   │ 3797.5 tok/s    │ > 30.0 tok/s    │ NOMINAL   │
+│ P95 Inter-Chunk Jitter     │ 0.0 ms          │ < 60.0 ms       │ NOMINAL   │
+│ KV Prompt Cache Locality   │ MISS / UNCACHED │ Prefix >1k tok  │ EVALUATED │
+│ Total Stream Duration      │ 0.031 s         │ N/A             │ RECORDED  │
+└────────────────────────────┴─────────────────┴─────────────────┴───────────┘
+
+✓ Exported dual-format RCA report to: 
+/private/tmp/sentinel-baseline-evidence/cli-report.md
