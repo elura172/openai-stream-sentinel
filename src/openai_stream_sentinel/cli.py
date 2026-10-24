@@ -1,7 +1,6 @@
 """Rich CLI Interface for OpenAI Stream Sentinel.
 
-Enables developers and SREs to run live or simulated diagnostics, observe TTFT/jitter,
-and export enterprise-ready Root Cause Analysis (RCA) reports.
+Run a streaming probe or synthetic scenario and export diagnostic drafts.
 """
 
 import sys
@@ -48,17 +47,17 @@ def print_incident_summary(report):
     header_text.append(f"({incident.severity.value})", style=sev_color)
 
     summary_panel = Panel(
-        f"[bold]Root Cause:[/bold] {incident.root_cause_summary}\n\n"
-        f"[bold]Theoretical Reference:[/bold] [italic cyan]{incident.mit_course_reference}[/italic cyan]",
+        f"[bold]Assessment:[/bold] {incident.root_cause_summary}\n\n"
+        f"[bold]Diagnostic rule:[/bold] [italic cyan]{incident.diagnostic_basis}[/italic cyan]",
         title=header_text,
         border_style=sev_color
     )
     console.print(summary_panel)
 
-    table = Table(title="Streaming Telemetry & SLI Metrics", show_header=True, header_style="bold magenta")
+    table = Table(title="Streaming Observations", show_header=True, header_style="bold magenta")
     table.add_column("Metric / SLI", style="cyan")
     table.add_column("Observed Value", style="white")
-    table.add_column("Baseline Target", style="dim")
+    table.add_column("Local reference", style="dim")
     table.add_column("Status", style="bold")
 
     # TTFT Row
@@ -101,19 +100,19 @@ def print_incident_summary(report):
 
 
 async def async_main():
-    parser = argparse.ArgumentParser(description="OpenAI Stream Sentinel — Enterprise Observability & Auto-RCA Canary")
+    parser = argparse.ArgumentParser(description="OpenAI Stream Sentinel — Client-side streaming diagnostics")
     parser.add_argument("command", choices=["run", "probe", "suite"], help="Execution mode")
     parser.add_argument("--scenario", choices=list(SCENARIO_MAP.keys()) + ["all"], default="all", help="Scenario to simulate in 'run' mode")
     parser.add_argument("--model", default="gpt-4o", help="Target model for live probe")
     parser.add_argument("--prompt", default="Ping probe test", help="Prompt text for live probe")
     parser.add_argument("--timeout", type=float, default=30.0, help="Total live probe deadline in seconds (default: 30)")
-    parser.add_argument("--out", type=Path, default=None, help="Path to write dual-format Markdown RCA report")
+    parser.add_argument("--out", type=Path, default=None, help="Path to write Markdown diagnostic drafts")
 
     args = parser.parse_args()
 
     console.print(Panel.fit(
-        "[bold cyan]OpenAI Stream Sentinel[/bold cyan] · [yellow]Enterprise Diagnostic Probe & Auto-RCA Canary[/yellow]\n"
-        "[dim]Theoretical Framework: MIT 6.033 (Fault Tolerance) · MIT 6.172 (Performance) · MIT 6.824 (Distributed Systems)[/dim]",
+        "[bold cyan]OpenAI Stream Sentinel[/bold cyan] · [yellow]Client-side streaming diagnostics[/yellow]\n"
+        "[dim]Independent project · observations and heuristic triage[/dim]",
         border_style="cyan"
     ))
 
@@ -155,13 +154,13 @@ async def async_main():
 
     # Export markdown if requested or if output provided
     if args.out and reports:
-        output_content = "# OpenAI Stream Sentinel — Incident RCA & Diagnostic Brief\n\n"
+        output_content = "# OpenAI Stream Sentinel — Streaming Diagnostic Brief\n\n"
         output_content += f"Generated on `{reports[0].incident.timestamp}`\n\n"
         for rep in reports:
             output_content += f"---\n\n{rep.customer_advisory}\n\n---\n\n{rep.engineering_postmortem}\n\n"
         
         args.out.write_text(output_content, encoding="utf-8")
-        console.print(f"\n[bold green]✓ Exported dual-format RCA report to:[/bold green] [underline]{args.out}[/underline]")
+        console.print(f"\n[bold green]✓ Exported diagnostic report to:[/bold green] [underline]{args.out}[/underline]")
 
     return int(args.command == "probe" and any(rep.incident.failure_domain != FailureDomain.HEALTHY for rep in reports))
 

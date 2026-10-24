@@ -43,6 +43,7 @@ class StreamingMetrics(BaseModel):
     error_occurred: bool = False
     error_details: Optional[str] = None
     http_status_code: Optional[int] = None
+    request_id: Optional[str] = None
 
 
 class IncidentRecord(BaseModel):
@@ -51,11 +52,12 @@ class IncidentRecord(BaseModel):
     target_model: str
     failure_domain: FailureDomain
     severity: SeverityLevel
-    mit_course_reference: str
+    probe_mode: str
+    diagnostic_basis: str
     root_cause_summary: str
     metrics: StreamingMetrics
     telemetry_indicators: Dict[str, Any]
-    reproduction_curl: str
+    reproduction_command: str
     remediation_steps: List[str]
 
 

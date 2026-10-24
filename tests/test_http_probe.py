@@ -29,16 +29,19 @@ def endpoint(monkeypatch):
             pass
 
         def do_POST(self):
+            self.server.auth_ok.append(self.headers.get("Authorization") == "Bearer local-test-key")
             self.server.requests.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
             scenario = self.server.scenario
             if scenario in ("429", "503"):
                 self.send_response(int(scenario))
                 self.send_header("Content-Type", "application/json")
+                self.send_header("x-request-id", "local-request-001")
                 self.end_headers()
                 self.wfile.write(json.dumps({"error": {"message": "local failure", "type": "test_error"}}).encode())
                 return
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
+            self.send_header("x-request-id", "local-request-001")
             if scenario == "disconnect":
                 self.send_header("Transfer-Encoding", "chunked")
             self.end_headers()
@@ -73,6 +76,7 @@ def endpoint(monkeypatch):
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     server.scenario = "success"
     server.requests = []
+    server.auth_ok = []
     thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
     thread.start()
     monkeypatch.setenv("OPENAI_API_KEY", "local-test-key")
@@ -107,6 +111,7 @@ def test_real_sdk_stream_outcomes(endpoint, scenario, domain):
     report = asyncio.run(CanaryRunner.run_live_probe(model="test-model", timeout=0.2))
     metrics = report.incident.metrics
     assert report.incident.failure_domain == domain
+    assert metrics.request_id == "local-request-001"
     assert len(endpoint.requests) == 1  # Retries must not obscure a probe failure.
     assert endpoint.requests[0]["stream_options"] == {"include_usage": True}
     if scenario in ("success", "no-usage"):
@@ -147,3 +152,21 @@ def test_cli_exit_and_export(endpoint, tmp_path, scenario):
         assert "unavailable (no content received)" in report
     if scenario == "eof":
         assert "before a model finish_reason" in report
+
+
+def test_generated_connectivity_command_is_one_valid_request(endpoint):
+    from openai_stream_sentinel.rca_engine import RCAEngine
+    from openai_stream_sentinel.telemetry import TelemetryTracker
+
+    tracker = TelemetryTracker()
+    tracker.start_connection()
+    tracker.record_error("request failed", status_code=503)
+    model = "test-model'$(echo should-stay-literal)"
+    incident = RCAEngine.diagnose(tracker.compute_metrics(), {"model": model, "mode": "LIVE_PROBE"})
+    result = subprocess.run(["bash", "-c", incident.reproduction_command],
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert len(endpoint.requests) == 1
+    assert endpoint.auth_ok == [True]
+    assert endpoint.requests[0]["model"] == model
+    assert endpoint.requests[0]["messages"] == [{"role": "user", "content": "Ping"}]

@@ -20,10 +20,12 @@ def test_rca_engine_buffer_bloat_report():
     metrics = tracker.compute_metrics()
     incident = RCAEngine.diagnose(metrics, {"buffer_stall_s": 1.5})
     assert incident.failure_domain == FailureDomain.PROXY_BUFFER_BLOAT
-    assert "MIT 6.033" in incident.mit_course_reference
+    assert "interval" in incident.diagnostic_basis
+    assert incident.telemetry_indicators["max_inter_chunk_interval_ms"] == pytest.approx(1500)
+    assert "concurrent_workers" not in incident.telemetry_indicators
 
     report = RCAEngine.generate_report(incident)
-    assert "[OpenAI Enterprise Customer Advisory]" in report.customer_advisory
+    assert "Customer advisory draft" in report.customer_advisory
     assert "Internal Diagnostic Draft" in report.engineering_postmortem
     assert "not been independently validated" in report.customer_advisory
     assert "curl" in report.engineering_postmortem

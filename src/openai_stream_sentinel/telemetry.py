@@ -1,11 +1,7 @@
-"""Telemetry collector and statistical analyzer for streaming LLM completions.
-
-References:
-- MIT 6.172 (Performance Engineering): Latency tail distributions, percentiles, cache hits
-- MIT 6.033 (Computer System Engineering): End-to-end telemetry and socket performance
-"""
+"""Collect client-side timing, provider usage, and diagnostic pattern signals."""
 
 import math
+import re
 import statistics
 import time
 from typing import List, Dict, Any, Tuple, Optional
@@ -26,6 +22,7 @@ class TelemetryTracker:
         self.http_status_code: Optional[int] = None
         self.completion_tokens: Optional[int] = None
         self.finish_reason: Optional[str] = None
+        self.request_id: Optional[str] = None
 
     def start_connection(self) -> None:
         self.connect_start = time.perf_counter()
@@ -108,11 +105,15 @@ class TelemetryTracker:
         # Inferred domain classification
         domain = FailureDomain.HEALTHY
         error_text = (self.error_details or "").casefold()
-        if self.error_occurred and (self.http_status_code == 429 or "429" in error_text or "rate_limit" in error_text):
+        if self.error_occurred and self.http_status_code == 429:
             domain = FailureDomain.RATE_LIMIT_BURST
-        elif self.error_occurred and any(term in error_text for term in ("rst", "truncation", "connection reset", "connection aborted")):
+        elif self.error_occurred and self.http_status_code is not None:
+            domain = FailureDomain.STREAM_ERROR
+        elif self.error_occurred and (re.search(r"\b429\b", error_text) or "rate_limit" in error_text):
+            domain = FailureDomain.RATE_LIMIT_BURST
+        elif self.error_occurred and any(term in error_text for term in ("rst_stream", "econnreset", "truncation", "connection reset", "connection aborted")):
             domain = FailureDomain.TCP_RST_TRUNCATION
-        elif self.error_occurred and "tool" in error_text:
+        elif self.error_occurred and any(term in error_text for term in ("toolexecutiontimeout", "tool timeout", "tool schema")):
             domain = FailureDomain.TOOL_TIMEOUT_SCHEMA_MISMATCH
         elif self.error_occurred:
             domain = FailureDomain.STREAM_ERROR
@@ -141,5 +142,6 @@ class TelemetryTracker:
             inferred_domain=domain,
             error_occurred=self.error_occurred,
             error_details=self.error_details,
-            http_status_code=self.http_status_code
+            http_status_code=self.http_status_code,
+            request_id=self.request_id,
         )

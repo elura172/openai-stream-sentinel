@@ -1,0 +1,60 @@
+name: CI
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.13', '3.14']
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version: '0.9.3'
+          python-version: ${{ matrix.python }}
+      - run: uv sync --locked
+      - run: uv run --no-sync pytest -q --junitxml=test-results.xml
+      - run: uv run --no-sync python scripts/reproduce_incomplete_stream.py --out evidence
+      - name: Check incident reproduction outcome
+        run: |
+          uv run --no-sync python - <<'PY'
+          import json
+          from pathlib import Path
+          r = json.loads(Path('evidence/result.json').read_text())
+          assert r['api_report_error'] and r['cli_exit'] == 1
+          assert r['requests_received'] == 2 and r['cli_report_written']
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: evidence-python-${{ matrix.python }}
+          path: |
+            test-results.xml
+            evidence/
+  package:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version: '0.9.3'
+          python-version: '3.13'
+      - run: uv build --no-sources
+      - run: uv export --locked --no-dev --no-emit-project --output-file dist/requirements-runtime.txt
+      - name: Smoke-test installed wheel and source distribution
+        run: bash scripts/check_distributions.sh
+      - name: Hash release files
+        run: python scripts/hash_release.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-dist
+          path: dist/

@@ -1,10 +1,4 @@
-"""Deterministic failure simulators modeling the top 5 enterprise API breakdown modes.
-
-References:
-- MIT 6.033: Computer System Engineering (Fault tolerance, retries, RPC timeouts)
-- MIT 6.172: Performance Engineering (Buffering, tail latency, cache misses)
-- MIT 6.824: Distributed Systems (RPC semantics, tool execution failures)
-"""
+"""Inject six synthetic timing/error patterns without network traffic."""
 
 import asyncio
 import time

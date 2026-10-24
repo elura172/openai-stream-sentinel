@@ -1,8 +1,4 @@
-"""Canary probe runner supporting both live OpenAI API probes and offline simulation profiles.
-
-References:
-- MIT 6.033: Computer System Engineering (Fault tolerance, synthetic probe monitoring)
-"""
+"""Run bounded SDK requests and synthetic streaming scenarios."""
 
 import os
 import asyncio
@@ -51,6 +47,7 @@ class CanaryRunner:
                         stream_options={"include_usage": True}
                     )
                     async with stream:
+                        tracker.request_id = stream.response.headers.get("x-request-id")
                         async for chunk in stream:
                             if chunk.usage is not None:
                                 tracker.record_usage(
@@ -72,6 +69,7 @@ class CanaryRunner:
                 tracker.record_error(f"Probe deadline exceeded ({timeout:g}s)")
             except Exception as e:
                 status_code = getattr(e, "status_code", None)
+                tracker.request_id = getattr(e, "request_id", None) or tracker.request_id
                 tracker.record_error(f"{type(e).__name__}: {e}", status_code=status_code)
 
         metrics = tracker.compute_metrics()

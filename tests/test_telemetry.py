@@ -139,3 +139,15 @@ def test_provider_usage_is_reported_separately_from_chunks():
     assert metrics.chunk_count == 1
     assert metrics.completion_tokens == 4
     assert metrics.prompt_tokens == 17
+
+
+@pytest.mark.parametrize("message,status", [
+    ("first request failed", None),
+    ("tool configuration was mentioned in a generic error", None),
+    ("upstream failed while discussing HTTP 429", 503),
+])
+def test_incidental_error_text_does_not_invent_a_failure_domain(message, status):
+    tracker = TelemetryTracker()
+    tracker.start_connection()
+    tracker.record_error(message, status_code=status)
+    assert tracker.compute_metrics().inferred_domain == FailureDomain.STREAM_ERROR
