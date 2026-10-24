@@ -145,4 +145,4 @@ production incident ownership.
 
 ## License
 
-[MIT](LICENSE), copyright 2026 Paul Trafford.
+[MIT](LICENSE), copyright 2026 elura172.
